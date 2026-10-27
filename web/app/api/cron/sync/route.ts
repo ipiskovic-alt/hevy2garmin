@@ -1,4 +1,3 @@
-```typescript
 import { NextResponse } from "next/server";
 import { syncOneWorkout, type SyncOneResult } from "@/lib/sync-one";
 import { repeatsEarlierRun } from "@/lib/sync-progress";
@@ -9,7 +8,6 @@ import { postgresLockBackend } from "@/lib/sync-lock-store";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-export const maxDuration = 300;
 
 const CAP = 50;
 
@@ -31,8 +29,9 @@ export async function GET(request: Request) {
     sql = getDb();
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
+
     return NextResponse.json(
-      { ok: false, error: `Database unavailable: ${error}` },
+      { ok: false, error: "DB unavailable: " + error },
       { status: 503 }
     );
   }
@@ -46,7 +45,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       ok: true,
       mode: "skipped",
-      reason: "Another sync is running",
+      reason: "another sync is running",
       ran: 0,
     });
   }
@@ -62,6 +61,7 @@ export async function GET(request: Request) {
       });
 
       if (result.status === "none") break;
+
       if (repeatsEarlierRun(seen, result)) break;
 
       runs.push(result);
@@ -91,7 +91,8 @@ export async function GET(request: Request) {
   ).length;
 
   const failed = runs.filter(
-    (result) => ["error", "failed"].includes(status(result))
+    (result) =>
+      ["error", "failed"].includes(status(result))
   ).length;
 
   await recordSyncRun(
@@ -109,4 +110,3 @@ export async function GET(request: Request) {
     failed,
   });
 }
-```
