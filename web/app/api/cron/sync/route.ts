@@ -1,15 +1,9 @@
 import { NextResponse } from "next/server";
-import { syncOneWorkout, type SyncOneResult } from "@/lib/sync-one";
-import { repeatsEarlierRun } from "@/lib/sync-progress";
-import { postgresSyncStore } from "@/lib/sync-store";
-import { recordSyncRun, acquireSyncLock } from "hevy2garmin";
 import { getDb } from "@/lib/db";
-import { postgresLockBackend } from "@/lib/sync-lock-store";
+import { getGithubPat, getGithubRepo, triggerViaActions } from "@/lib/github";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-const CAP = 50;
 
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
@@ -23,90 +17,40 @@ export async function GET(request: Request) {
     );
   }
 
-  let sql: ReturnType<typeof getDb>;
+  let sql: ReturnType<typeof getDb> | null = null;
 
   try {
     sql = getDb();
-  } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
-
-    return NextResponse.json(
-      { ok: false, error: "DB unavailable: " + error },
-      { status: 503 }
-    );
+  } catch {
+    // GitHub PAT may still be available through environment variables.
   }
 
-  const lock = await acquireSyncLock({
-    backend: postgresLockBackend(sql),
-    key: "sync",
-  });
+  const pat = await getGithubPat(sql);
+  const repo = getGithubRepo();
 
-  if (!lock) {
-    return NextResponse.json({
-      ok: true,
-      mode: "skipped",
-      reason: "another sync is running",
-      ran: 0,
-    });
-  }
+  if (pat && repo) {
+    try {
+      const ok = await triggerViaActions(pat, repo);
 
-  const runs: SyncOneResult[] = [];
-  const seen = new Set<string>();
+      return NextResponse.json(
+        { ok, mode: "dispatch", triggered: ok },
+        { status: ok ? 200 : 502 }
+      );
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
 
-  try {
-    for (let i = 0; i < CAP; i++) {
-      const result = await syncOneWorkout(sql, {
-        dryRun: false,
-        respectGrace: true,
-      });
-
-      if (result.status === "none") break;
-
-      if (repeatsEarlierRun(seen, result)) break;
-
-      runs.push(result);
-
-      if (result.status === "error") break;
+      return NextResponse.json(
+        { ok: false, mode: "dispatch", error },
+        { status: 502 }
+      );
     }
-  } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
-
-    return NextResponse.json(
-      { ok: false, error, ran: runs.length },
-      { status: 500 }
-    );
-  } finally {
-    await lock.release();
   }
 
-  const status = (result: SyncOneResult) => result.status as string;
-
-  const synced = runs.filter(
-    (result) => status(result) === "synced"
-  ).length;
-
-  const skipped = runs.filter(
-    (result) =>
-      ["deferred", "skipped", "processing"].includes(status(result))
-  ).length;
-
-  const failed = runs.filter(
-    (result) =>
-      ["error", "failed"].includes(status(result))
-  ).length;
-
-  await recordSyncRun(
-    postgresSyncStore(sql),
-    { synced, skipped, failed },
-    "cron"
+  return NextResponse.json(
+    {
+      ok: false,
+      error: "GitHub Actions is not configured. Check GitHub PAT and repository settings.",
+    },
+    { status: 503 }
   );
-
-  return NextResponse.json({
-    ok: true,
-    mode: "inline",
-    ran: runs.length,
-    synced,
-    skipped,
-    failed,
-  });
 }
