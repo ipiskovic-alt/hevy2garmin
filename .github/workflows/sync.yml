@@ -1,33 +1,44 @@
 name: Sync Workouts
 
 on:
-schedule:
-- cron: '30 19 * * *'
-- cron: '30 20 * * *'
-workflow_dispatch:
-repository_dispatch:
-types: [sync-trigger]
+  schedule:
+    - cron: '30 19 * * *'
+    - cron: '30 20 * * *'
+  workflow_dispatch:
+  repository_dispatch:
+    types: [sync-trigger]
 
 concurrency:
-group: sync
-cancel-in-progress: false
+  group: sync
+  cancel-in-progress: false
 
 jobs:
-sync:
-runs-on: ubuntu-latest
-timeout-minutes: 30
-steps:
-- uses: actions/checkout@v5
-- uses: actions/setup-python@v6
-with:
-python-version: '3.12'
-- name: Install
-run: pip install ".[cloud]"
-- name: Check Croatian time
-id: time
-run: echo "run=$( [ "$(TZ=Europe/Zagreb date +'%H:%M')" = '21:30' ] && echo true || echo false )" >> "$GITHUB_OUTPUT"
-- name: Sync
-if: steps.time.outputs.run == 'true' || github.event_name != 'schedule'
-env:
-DATABASE_URL: ${{ secrets.DATABASE_URL }}
-run: hevy2garmin sync
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install
+        run: pip install ".[cloud]"
+
+      - name: Check Croatian time
+        id: time
+        run: |
+          HOUR=$(TZ=Europe/Zagreb date +'%H')
+          MINUTE=$(TZ=Europe/Zagreb date +'%M')
+          if [ "$HOUR" = "21" ] && [ "$MINUTE" -ge 30 ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Sync
+        if: steps.time.outputs.run == 'true' || github.event_name != 'schedule'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: hevy2garmin sync
