@@ -2,8 +2,8 @@ name: Sync Workouts
 
 on:
   schedule:
-    - cron: '30 19 * * *'
-    - cron: '30 20 * * *'
+    - cron: '45 20 * * *'
+    - cron: '45 21 * * *'
   workflow_dispatch:
   repository_dispatch:
     types: [sync-trigger]
@@ -31,7 +31,7 @@ jobs:
         run: |
           HOUR=$(TZ=Europe/Zagreb date +'%H')
           MINUTE=$(TZ=Europe/Zagreb date +'%M')
-          if [ "$HOUR" = "21" ] && [ "$MINUTE" -ge 30 ]; then
+          if [ "$HOUR" = "22" ] && [ "$MINUTE" -ge 45 ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
